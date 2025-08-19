@@ -6,6 +6,8 @@ import com.planejao.gestao_projetos.domain.StatusProjeto;
 import com.planejao.gestao_projetos.dto.*;
 import com.planejao.gestao_projetos.exception.ProjectException;
 import com.planejao.gestao_projetos.repository.ProjectRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -18,7 +20,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class ProjectService {
-
+    private static final Logger logger = LoggerFactory.getLogger(ProjectService.class);
     private final ProjectRepository repository;
     private final MemberService memberService;
 
@@ -44,39 +46,89 @@ public class ProjectService {
     }
 
     public ProjectDTO create(ProjectRequestDTO dto) {
+        logger.info("Criando projeto: {}", dto.nome());
+        logger.debug("Dados recebidos: {}", dto);
+
         if (dto.membros().isEmpty()) {
+            logger.error("Tentativa de criar projeto sem membros");
             throw new ProjectException("Deve alocar pelo menos 1 membro");
         }
+
+        logger.debug("Validando gerente com ID: {}", dto.gerenteId());
         Member gerente = convertAndValidateMember(dto.gerenteId(), false);
+        logger.info("Gerente validado: {} (ID: {})", gerente.getNome(), gerente.getId());
+
         Project project = new Project();
         project.setNome(dto.nome());
         project.setDataInicio(dto.dataInicio());
         project.setPrevisaoTermino(dto.previsaoTermino());
         project.setOrcamentoTotal(dto.orcamentoTotal());
         project.setDescricao(dto.descricao());
-        project.setGerente(gerente); // Usando setGerente com Member
+        project.setGerente(gerente);
         project.setStatus(StatusProjeto.EM_ANALISE);
         project.setMembros(new ArrayList<>());
+
+        logger.debug("Salvando projeto no banco...");
         Project saved = repository.save(project);
+        logger.info("Projeto salvo com ID: {}", saved.getId());
+
+        logger.debug("Adicionando {} membros ao projeto", dto.membros().size());
         for (Long memberId : dto.membros()) {
+            logger.debug("Adicionando membro ID: {}", memberId);
             addMember(saved.getId(), memberId);
         }
+
+        logger.info("Projeto criado com sucesso: {} (ID: {})", saved.getNome(), saved.getId());
         return toDTO(saved);
     }
 
     public ProjectDTO update(Long id, ProjectUpdateDTO dto) {
-        Project project = repository.findById(id).orElseThrow(() -> new ProjectException("Projeto não encontrado"));
-        if (dto.nome() != null) project.setNome(dto.nome());
-        if (dto.dataInicio() != null) project.setDataInicio(dto.dataInicio());
-        if (dto.previsaoTermino() != null) project.setPrevisaoTermino(dto.previsaoTermino());
-        if (dto.dataRealTermino() != null) project.setDataRealTermino(dto.dataRealTermino());
-        if (dto.orcamentoTotal() != null) project.setOrcamentoTotal(dto.orcamentoTotal());
-        if (dto.descricao() != null) project.setDescricao(dto.descricao());
-        if (dto.gerenteId() != null) {
-            Member gerente = convertAndValidateMember(dto.gerenteId(), false);
-            project.setGerente(gerente); // Usando setGerente com Member
+        logger.info("Atualizando projeto ID: {}", id);
+        logger.debug("Dados recebidos: {}", dto);
+
+        Project project = repository.findById(id).orElseThrow(() -> {
+            logger.error("Projeto não encontrado com ID: {}", id);
+            return new ProjectException("Projeto não encontrado");
+        });
+
+        logger.debug("Projeto encontrado: {} (ID: {})", project.getNome(), project.getId());
+
+        if (dto.nome() != null) {
+            logger.debug("Atualizando nome: {} -> {}", project.getNome(), dto.nome());
+            project.setNome(dto.nome());
         }
-        return toDTO(repository.save(project));
+        if (dto.dataInicio() != null) {
+            logger.debug("Atualizando data início: {} -> {}", project.getDataInicio(), dto.dataInicio());
+            project.setDataInicio(dto.dataInicio());
+        }
+        if (dto.previsaoTermino() != null) {
+            logger.debug("Atualizando previsão término: {} -> {}", project.getPrevisaoTermino(), dto.previsaoTermino());
+            project.setPrevisaoTermino(dto.previsaoTermino());
+        }
+        if (dto.dataRealTermino() != null) {
+            logger.debug("Atualizando data real término: {} -> {}", project.getDataRealTermino(), dto.dataRealTermino());
+            project.setDataRealTermino(dto.dataRealTermino());
+        }
+        if (dto.orcamentoTotal() != null) {
+            logger.debug("Atualizando orçamento: {} -> {}", project.getOrcamentoTotal(), dto.orcamentoTotal());
+            project.setOrcamentoTotal(dto.orcamentoTotal());
+        }
+        if (dto.descricao() != null) {
+            logger.debug("Atualizando descrição");
+            project.setDescricao(dto.descricao());
+        }
+        if (dto.gerenteId() != null) {
+            logger.debug("Validando novo gerente com ID: {}", dto.gerenteId());
+            Member gerente = convertAndValidateMember(dto.gerenteId(), false);
+            logger.info("Novo gerente validado: {} (ID: {})", gerente.getNome(), gerente.getId());
+            project.setGerente(gerente);
+        }
+
+        logger.debug("Salvando projeto atualizado...");
+        Project saved = repository.save(project);
+        logger.info("Projeto atualizado com sucesso: {} (ID: {})", saved.getNome(), saved.getId());
+
+        return toDTO(saved);
     }
 
     public void delete(Long id) {
@@ -153,23 +205,34 @@ public class ProjectService {
     }
 
     private Member convertAndValidateMember(Long memberId, boolean isTeamMember) {
+        logger.debug("Validando membro com ID: {} (isTeamMember: {})", memberId, isTeamMember);
+
         MemberDTO memberDTO = memberService.getMember(memberId);
         if (memberDTO == null) {
+            logger.error("Membro não encontrado com ID: {}", memberId);
             throw new ProjectException("Membro não encontrado");
         }
+
+        logger.debug("Membro encontrado: {} - {}", memberDTO.nome(), memberDTO.cargo());
+
         if (isTeamMember) {
             if (!"funcionario".equals(memberDTO.cargo())) {
+                logger.error("Membro {} tem cargo '{}' mas deveria ser 'funcionario'", memberDTO.nome(), memberDTO.cargo());
                 throw new ProjectException("Apenas membros com atribuição 'funcionário' podem ser associados");
             }
         } else {
             if (!"gerente".equals(memberDTO.cargo())) {
+                logger.error("Membro {} tem cargo '{}' mas deveria ser 'gerente'", memberDTO.nome(), memberDTO.cargo());
                 throw new ProjectException("Apenas membros com atribuição 'gerente' podem ser gerentes responsáveis");
             }
         }
+
         Member member = new Member();
         member.setId(memberDTO.id());
         member.setNome(memberDTO.nome());
         member.setCargo(memberDTO.cargo());
+
+        logger.debug("Membro validado com sucesso: {} - {}", member.getNome(), member.getCargo());
         return member;
     }
 

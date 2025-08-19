@@ -258,6 +258,3 @@ O diagrama acima representa a estrutura do banco de dados com as seguintes tabel
 - **Swagger UI:** Documentação interativa da API
 - **Health Check:** Endpoint de saúde da aplicação
 
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
